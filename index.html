@@ -61,7 +61,7 @@ let state={
 // ---- n8n connection ----
 // Ganti URL di bawah ini dengan Production URL dari node Webhook n8n.
 // Contoh: https://n8n.domainanda.com/webhook/car-content-upload
-const N8N_WEBHOOK_URL = 'https://n8n.43-157-227-122.sslip.io/webhook-test/car-content-upload';
+const N8N_WEBHOOK_URL = 'https://n8n.43-157-227-122.sslip.io/webhook/car-content-upload';
 const uploadService = {
   uploadToN8N: function(payload){
     if(!N8N_WEBHOOK_URL || N8N_WEBHOOK_URL.indexOf('PASTE_N8N_') === 0){
