@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Car Content Uploader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+:root{--bg:#f6f7f9;--surface:#ffffff;--text:#0f172a;--muted:#64748b;--border:#e2e8f0;--primary:#2563eb;--primary-dark:#1d4ed8;}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0b1220;--surface:#131b2c;--text:#e5e9f0;--muted:#94a3b8;--border:#243044;}}
+:root[data-theme="dark"]{--bg:#0b1220;--surface:#131b2c;--text:#e5e9f0;--muted:#94a3b8;--border:#243044;}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);padding-bottom:env(safe-area-inset-bottom,0px)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;border-radius:9px;font-size:13.5px;font-weight:600;cursor:pointer;border:1px solid transparent;transition:background .15s;white-space:nowrap}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-dark)}
+.btn-primary:disabled{opacity:.45;cursor:not-allowed}
+.btn-secondary{background:var(--surface);color:var(--text);border-color:var(--border)}
+.btn-secondary:hover{background:var(--bg)}
+.field-input{width:100%;padding:9px 12px;border-radius:9px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px}
+.field-input:focus{outline:2px solid var(--primary);outline-offset:1px}
+.dropzone{border:1.5px dashed var(--border);border-radius:12px;padding:22px;text-align:center;cursor:pointer;background:var(--bg)}
+.dropzone.drag{border-color:var(--primary);background:color-mix(in srgb, var(--primary) 8%, var(--bg))}
+.sidebar-link{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;font-size:14px;font-weight:500;color:var(--muted);cursor:pointer}
+.sidebar-link:hover{background:var(--bg);color:var(--text)}
+.sidebar-link.active{background:var(--primary);color:#fff}
+.badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:600}
+.badge-completed{background:#dcfce7;color:#166534}
+.badge-processing{background:#dbeafe;color:#1e40af}
+.badge-draft{background:#f1f5f9;color:#475569}
+.badge-error{background:#fee2e2;color:#991b1b}
+.part-thumb{width:64px;flex:0 0 auto}
+.scroll-x{overflow-x:auto}
+table{border-collapse:collapse}
+th{font-size:11px;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:11px 12px;border-bottom:1px solid var(--border);font-size:13.5px;white-space:nowrap}
+.overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
+.modal{background:var(--surface);border-radius:16px;max-width:700px;width:100%;max-height:88vh;overflow-y:auto;padding:22px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+function ph(label,w,h){w=w||280;h=h||190;return 'data:image/svg+xml;utf8,'+encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='"+w+"' height='"+h+"'><rect width='100%' height='100%' fill='#e2e8f0'/><text x='50%' y='50%' font-family='sans-serif' font-size='14' fill='#64748b' text-anchor='middle' dominant-baseline='middle'>"+label+"</text></svg>");}
+function phParts(prefix){return Array.from({length:7},function(_,i){return ph(prefix+' 0'+(i+1),150,210);});}
+
+let state={
+  page:'upload', theme:'system', sidebarOpen:false,
+  carName:'', showroom:'',
+  exteriorCover:null, exteriorPhoto:null,
+  interiorCover:null, interiorPhoto:null,
+  videoCover:null,
+  processing:false, stage:null, driveUrl:null
+};
+
+// ---- n8n connection ----
+// Ganti URL di bawah ini dengan Production URL dari node Webhook n8n.
+// Contoh: https://n8n.domainanda.com/webhook/car-content-upload
+const N8N_WEBHOOK_URL = 'https://n8n.43-157-227-122.sslip.io/webhook/car-content-upload';
+const uploadService = {
+  uploadToN8N: function(payload){
+    if(!N8N_WEBHOOK_URL || N8N_WEBHOOK_URL.indexOf('PASTE_N8N_') === 0){
+      return Promise.reject(new Error('URL webhook n8n belum diisi. Ganti nilai N8N_WEBHOOK_URL pada file HTML ini.'));
+    }
+    return fetch(N8N_WEBHOOK_URL, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    }).then(function(response){
+      return response.json().catch(function(){ return {}; }).then(function(data){
+        if(!response.ok || data.success === false){
+          throw new Error(data.message || 'n8n tidak dapat memproses upload.');
+        }
+        return data;
+      });
+    });
+  }
+};
+
+// ---- real client-side vertical image splitting (7 equal sections, left-to-right) ----
+function splitImageInto7Parts(dataUrl){
+  return new Promise(function(resolve){
+    const img = new Image();
+    img.onload = function(){
+      const w = img.width, h = img.height;
+      const partW = Math.floor(w/7);
+      const parts = [];
+      for(let i=0;i<7;i++){
+        const cw = (i===6) ? (w - partW*6) : partW;
+        const c = document.createElement('canvas');
+        c.width = cw; c.height = h;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, i*partW, 0, cw, h, 0, 0, cw, h);
+        parts.push(c.toDataURL('image/jpeg', 0.88));
+      }
+      resolve(parts);
+    };
+    img.src = dataUrl;
+  });
+}
+
+// ---- helpers ----
+function escapeHtml(s){return (s||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function formatSize(b){if(b<1024)return b+' B';if(b<1024*1024)return (b/1024).toFixed(1)+' KB';return (b/1024/1024).toFixed(1)+' MB';}
+function todayStr(){const d=new Date();const m=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return d.getDate()+' '+m[d.getMonth()]+' '+d.getFullYear();}
+function statusClass(s){return {Completed:'badge-completed',Processing:'badge-processing',Draft:'badge-draft',Error:'badge-error'}[s]||'badge-draft';}
+
+function computeSummary(){
+  const extCover=!!state.exteriorCover, extParts=!!(state.exteriorPhoto&&state.exteriorPhoto.parts);
+  const intCover=!!state.interiorCover, intParts=!!(state.interiorPhoto&&state.interiorPhoto.parts);
+  const videoDone=!!state.videoCover;
+  const total=(extCover?1:0)+(extParts?7:0)+(intCover?1:0)+(intParts?7:0)+(videoDone?1:0);
+  const allDone = state.carName.trim()!=='' && state.showroom!=='' && extCover && extParts && intCover && intParts && videoDone;
+  return {extCover:extCover,extParts:extParts,intCover:intCover,intParts:intParts,videoDone:videoDone,total:total,allDone:allDone};
+}
+
+function base64FromDataUrl(dataUrl){return dataUrl.split(',')[1];}
+function mimeFromDataUrl(dataUrl){return (dataUrl.match(/^data:([^;]+);base64,/) || [,'image/jpeg'])[1];}
+function buildUploadPayload(){
+  const uploads=[];
+  function add(name, folder, dataUrl){
+    uploads.push({name:name,folder:folder,mimeType:mimeFromDataUrl(dataUrl),base64:base64FromDataUrl(dataUrl)});
+  }
+  add('Cover.jpg','Exterior',state.exteriorCover.dataUrl);
+  state.exteriorPhoto.parts.forEach(function(part,index){add('Exterior_'+String(index+1).padStart(2,'0')+'.jpg','Exterior',part);});
+  add('Cover.jpg','Interior',state.interiorCover.dataUrl);
+  state.interiorPhoto.parts.forEach(function(part,index){add('Interior_'+String(index+1).padStart(2,'0')+'.jpg','Interior',part);});
+  add('Cover.jpg','Video',state.videoCover.dataUrl);
+  return {carName:state.carName.trim(),showroom:state.showroom,uploads:uploads};
+}
+
+// ---- actions ----
+function nav(p){state.page=p;state.sidebarOpen=false;render();}
+function toggleSidebar(){state.sidebarOpen=!state.sidebarOpen;render();}
+function setTheme(t){state.theme=t;if(t==='system')document.documentElement.removeAttribute('data-theme');else document.documentElement.setAttribute('data-theme',t);render();}
+function setField(el,key){state[key]=el.value;render();}
+
+function processFile(file,key){
+  if(!file.type.startsWith('image/')){alert('Mohon upload file gambar.');return;}
+  const reader=new FileReader();
+  reader.onload=function(){
+    const dataUrl=reader.result;
+    state[key]={name:file.name,size:file.size,dataUrl:dataUrl,parts:null};
+    render();
+    if(key==='exteriorPhoto'||key==='interiorPhoto'){
+      splitImageInto7Parts(dataUrl).then(function(parts){
+        if(state[key] && state[key].dataUrl===dataUrl){state[key].parts=parts;render();}
+      });
+    }
+  };
+  reader.readAsDataURL(file);
+}
+function handleFileInput(e,key){const f=e.target.files[0];if(f)processFile(f,key);e.target.value='';}
+function handleDrop(e,key){e.preventDefault();e.currentTarget.classList.remove('drag');const f=e.dataTransfer.files[0];if(f)processFile(f,key);}
+function removeFile(key){state[key]=null;render();}
+
+function prepareContent(){
+  const s=computeSummary();
+  if(!s.allDone){alert('Lengkapi nama mobil, showroom, dan semua upload wajib terlebih dahulu.');return;}
+  state.processing=true;state.stage='preparing';render();
+  const payload=buildUploadPayload();
+  uploadService.uploadToN8N(payload).then(function(res){
+    state.driveUrl=res.driveFolderUrl || res.driveUrl || null;
+    state.processing=false;state.stage='ready';
+    render();
+  }).catch(function(error){
+    state.processing=false;state.stage=null;render();
+    alert(error.message || 'Upload gagal. Coba lagi atau periksa workflow n8n.');
+  });
+}
+function resetUpload(){
+  state.carName='';state.stockNumber='';state.exteriorCover=null;state.exteriorPhoto=null;
+  state.interiorCover=null;state.interiorPhoto=null;state.videoCover=null;state.showroom='';state.stage=null;state.driveUrl=null;
+  render();
+}
+
+// ---- render pieces ----
+function dropzone(key,label,hint,current,title){
+  let inner;
+  if(current){
+    inner='<div class="flex items-center gap-3 text-left">'+
+      '<img src="'+current.dataUrl+'" class="w-14 h-14 object-cover rounded-lg" style="border:1px solid var(--border)"/>'+
+      '<div class="flex-1 min-w-0"><p class="text-sm font-medium truncate">'+escapeHtml(current.name)+'</p>'+
+      '<p class="text-xs" style="color:var(--muted)">'+formatSize(current.size)+'</p></div>'+
+      '<div class="flex gap-2 shrink-0">'+
+      '<button type="button" class="btn btn-secondary" style="padding:6px 10px" onclick="event.stopPropagation();document.getElementById(\'file-'+key+'\').click()">Replace</button>'+
+      '<button type="button" class="btn btn-secondary" style="padding:6px 10px" onclick="event.stopPropagation();removeFile(\''+key+'\')">Remove</button></div></div>';
+  } else {
+    inner='<div><div style="font-size:26px">&#8679;</div><p class="text-sm font-medium mt-2">Drag &amp; drop '+label+' here</p>'+
+      '<p class="text-xs" style="color:var(--muted)">or click to browse</p></div>';
+  }
+  return '<div><label class="text-sm font-semibold block mb-2">'+title+'</label>'+
+    '<div class="dropzone" ondragover="event.preventDefault();this.classList.add(\'drag\')" ondragleave="this.classList.remove(\'drag\')" ondrop="handleDrop(event,\''+key+'\')" onclick="document.getElementById(\'file-'+key+'\').click()">'+inner+'</div>'+
+    '<input type="file" id="file-'+key+'" accept="image/*" class="hidden" onchange="handleFileInput(event,\''+key+'\')"/>'+
+    '<p class="text-xs mt-1" style="color:var(--muted)">'+hint+'</p></div>';
+}
+function splitPreview(photo){
+  if(!photo)return '';
+  if(!photo.parts)return '<div class="mt-3 text-xs" style="color:var(--muted)">Splitting image...</div>';
+  const thumbs=photo.parts.map(function(p,i){return '<div class="part-thumb text-center"><img src="'+p+'" class="w-full h-20 object-cover rounded-md" style="border:1px solid var(--border)"/><p class="text-xs mt-1" style="color:var(--muted)">0'+(i+1)+'</p></div>';}).join('');
+  return '<div class="mt-4"><p class="text-sm font-semibold mb-2">Split Preview</p><div class="flex gap-2 scroll-x pb-1">'+thumbs+'</div></div>';
+}
+function renderPhotoSection(key,label){
+  const cover=state[key+'Cover'], photo=state[key+'Photo'];
+  return '<div class="card p-5"><h3 class="font-semibold text-base">'+label+'</h3>'+
+    '<p class="text-sm mb-4" style="color:var(--muted)">Upload cover and '+label.toLowerCase()+' photos.</p>'+
+    '<div class="grid md:grid-cols-2 gap-5">'+
+    dropzone(key+'Cover','cover','1 image \u2022 No splitting',cover,'Cover')+
+    '<div>'+dropzone(key+'Photo',label.toLowerCase()+' photos','Image will be split into 7 vertical sections',photo,label+' Photos')+splitPreview(photo)+'</div>'+
+    '</div></div>';
+}
+function renderVideoSection(){
+  return '<div class="card p-5"><h3 class="font-semibold text-base">Video</h3>'+
+    '<p class="text-sm mb-4" style="color:var(--muted)">Upload video cover.</p>'+
+    dropzone('videoCover','video cover','1 image \u2022 No splitting',state.videoCover,'Video Cover')+'</div>';
+}
+function renderSummary(){
+  const s=computeSummary();
+  return '<div class="card p-5"><h3 class="font-semibold text-base mb-3">Upload Summary</h3>'+
+    '<div class="grid sm:grid-cols-2 gap-3 text-sm mb-4">'+
+    '<div><span style="color:var(--muted)">Car:</span> <span class="font-medium">'+(state.carName?escapeHtml(state.carName):'\u2014')+'</span></div>'+
+    '<div><span style="color:var(--muted)">Showroom:</span> <span class="font-medium">'+(state.showroom?escapeHtml(state.showroom):'\u2014')+'</span></div>'+
+    '<div><span style="color:var(--muted)">Exterior:</span> Cover '+(s.extCover?'\u2713':'\u2014')+', 7 split images '+(s.extParts?'\u2713':'\u2014')+'</div>'+
+    '<div><span style="color:var(--muted)">Interior:</span> Cover '+(s.intCover?'\u2713':'\u2014')+', 7 split images '+(s.intParts?'\u2713':'\u2014')+'</div>'+
+    '<div><span style="color:var(--muted)">Video:</span> Cover '+(s.videoDone?'\u2713':'\u2014')+'</div></div>'+
+    '<div class="flex items-center justify-between text-xs mb-2"><span>'+(s.allDone?'Ready to upload':'Total files ready')+'</span><span>'+s.total+'/17 files</span></div>'+
+    '<div style="background:var(--border);border-radius:999px;height:8px;overflow:hidden"><div style="width:'+Math.round(s.total/17*100)+'%;background:var(--primary);height:100%"></div></div>'+
+    '<button class="btn btn-primary w-full mt-4" '+((!s.allDone||state.processing)?'disabled':'')+' onclick="prepareContent()">'+(state.processing?'Mengunggah ke Drive...':'Lanjutkan & Upload')+'</button></div>';
+}
+function renderSuccess(){
+  return '<div class="card p-6 text-center"><div style="font-size:30px">&#9989;</div>'+
+    '<h3 class="font-semibold text-lg mt-2">Content Ready</h3>'+
+    '<p class="text-sm" style="color:var(--muted)">'+escapeHtml(state.carName)+' \u2022 '+escapeHtml(state.showroom)+'</p>'+
+    '<span class="badge badge-completed mt-2 inline-block">TERSIMPAN</span>'+
+    '<div class="flex justify-center gap-6 text-sm mt-4"><span>Exterior \u2713</span><span>Interior \u2713</span><span>Video \u2713</span></div>'+
+    '<div class="flex gap-3 justify-center mt-5 flex-wrap">'+(state.driveUrl?'<a class="btn btn-secondary" href="'+escapeHtml(state.driveUrl)+'" target="_blank" rel="noopener">Buka Folder Drive</a>':'')+
+    '<button class="btn btn-primary" onclick="resetUpload()">Upload Another Car</button></div></div>';
+}
+function renderUpload(){
+  return '<div class="max-w-4xl mx-auto flex flex-col gap-6">'+
+    '<div><h2 class="text-xl font-semibold">Upload Konten Mobil</h2><p class="text-sm" style="color:var(--muted)">File akan disusun otomatis ke Google Drive showroom dan dicatat di Google Sheets.</p></div>'+
+    '<div class="card p-5 grid sm:grid-cols-2 gap-4">'+
+    '<div><label class="text-sm font-semibold block mb-1">Car Name</label><input id="carNameInput" class="field-input" value="'+escapeHtml(state.carName)+'" placeholder="Contoh: Toyota Avanza G AT 2020" oninput="setField(this,\'carName\')"/></div>'+
+    '<div><label class="text-sm font-semibold block mb-1">Showroom</label><select id="showroomInput" class="field-input" onchange="setField(this,\'showroom\')">'+
+    '<option value=""'+(state.showroom===''?' selected':'')+'>Pilih showroom</option>'+
+    '<option value="Nadhira Auto Car"'+(state.showroom==='Nadhira Auto Car'?' selected':'')+'>Nadhira Auto Car</option>'+
+    '<option value="AMS Motor"'+(state.showroom==='AMS Motor'?' selected':'')+'>AMS Motor</option>'+
+    '</select></div>'+
+    '</div>'+
+    renderPhotoSection('exterior','Exterior')+renderPhotoSection('interior','Interior')+renderVideoSection()+
+    (state.stage==='ready'?renderSuccess():renderSummary())+
+    '</div>';
+}
+function renderSettings(){
+  const opts=['system','light','dark'];
+  const btns=opts.map(function(t){return '<button class="btn '+(state.theme===t?'btn-primary':'btn-secondary')+'" onclick="setTheme(\''+t+'\')">'+t.charAt(0).toUpperCase()+t.slice(1)+'</button>';}).join('');
+  return '<div class="card p-5 max-w-md"><h3 class="font-semibold mb-3">Appearance</h3><div class="flex gap-2">'+btns+'</div>'+
+    '<p class="text-xs mt-4" style="color:var(--muted)">More settings will be available in a future release.</p></div>';
+}
+function renderSidebar(){
+  const links=[['upload','\u2b06\ufe0f','Upload Content'],['settings','\u2699\ufe0f','Settings']];
+  const items=links.map(function(l){return '<div class="sidebar-link '+(state.page===l[0]?'active':'')+'" onclick="nav(\''+l[0]+'\')"><span>'+l[1]+'</span><span>'+l[2]+'</span></div>';}).join('');
+  const openClass=state.sidebarOpen?'translate-x-0':'-translate-x-full';
+  return '<aside class="fixed md:static top-0 left-0 bottom-0 z-40 w-64 flex flex-col justify-between p-4 md:translate-x-0 '+openClass+'" style="background:var(--surface);border-right:1px solid var(--border);transition:transform .2s;padding-top:calc(1rem + env(safe-area-inset-top,0px))">'+
+    '<div><div class="mb-6 px-2"><p class="font-bold tracking-tight" style="font-size:15px">CAR CONTENT</p><p class="text-xs" style="color:var(--muted)">Content Uploader</p></div>'+
+    '<nav class="flex flex-col gap-1">'+items+'</nav></div>'+
+    '<p class="text-xs px-2" style="color:var(--muted)">MVP Version</p></aside>';
+}
+function renderApp(){
+  const titles={upload:'Upload Content',settings:'Settings'};
+  let page;
+  if(state.page==='settings')page=renderSettings();
+  else page=renderUpload();
+  return '<div class="min-h-screen md:flex">'+
+    renderSidebar()+
+    (state.sidebarOpen?'<div class="fixed inset-0 z-30 md:hidden" style="background:rgba(15,23,42,.4)" onclick="toggleSidebar()"></div>':'')+
+    '<div class="flex-1 min-w-0">'+
+    '<header class="flex items-center gap-3 p-4 md:px-8 md:py-5" style="border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:20;padding-top:calc(1rem + env(safe-area-inset-top,0px))">'+
+    '<button class="md:hidden btn btn-secondary" style="padding:6px 10px" onclick="toggleSidebar()">&#9776;</button>'+
+    '<h1 class="font-semibold text-lg">'+titles[state.page]+'</h1></header>'+
+    '<main class="p-4 md:p-8">'+page+'</main></div></div>';
+}
+function render(){
+  const active=document.activeElement;
+  const activeId=active&&active.id;
+  const selStart=active?active.selectionStart:null, selEnd=active?active.selectionEnd:null;
+  const scrollY=window.scrollY;
+  document.getElementById('root').innerHTML=renderApp();
+  if(activeId){
+    const el=document.getElementById(activeId);
+    if(el){el.focus();if(selStart!=null&&el.setSelectionRange){try{el.setSelectionRange(selStart,selEnd);}catch(e){}}}
+  }
+  window.scrollTo(0,scrollY);
+}
+render();
+</script>
+</body>
+</html>

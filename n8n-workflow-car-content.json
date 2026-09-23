@@ -1,0 +1,167 @@
+{
+  "name": "Car Content Uploader → Google Drive & Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "car-content-upload",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "3e611444-fb1c-4d55-91cc-26f2caf902db",
+      "name": "Webhook - Car Content Upload",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1280, 200],
+      "webhookId": "ec6a6789-36c3-4af3-a14b-e8e6244f9e37"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst body = input.body ?? input;\nconst destinations = {\n  'AMS Motor': { parentFolderId: '1tk7Sz5nnwxYxWfoIGQ-5fEqohAuLICjv', sheetName: 'AMS Motor' },\n  'Nadhira Auto Car': { parentFolderId: '1OQOS-RcYOGpxPOwBsDxGUatOvnx-9DYf', sheetName: 'Nadhira Auto Car' },\n};\nconst carName = String(body.carName ?? '').trim();\nconst showroom = String(body.showroom ?? '').trim();\nconst uploads = Array.isArray(body.uploads) ? body.uploads : [];\nif (!carName || !destinations[showroom]) throw new Error('Nama mobil atau showroom tidak valid.');\nif (uploads.length !== 17) throw new Error('Upload harus berisi 17 gambar.');\nif (/[\\\\/:*?\\\"<>|]/.test(carName)) throw new Error('Nama mobil memuat karakter yang tidak bisa dipakai untuk folder.');\nfor (const file of uploads) {\n  if (!file?.name || !file?.folder || !file?.base64) throw new Error('Data file tidak lengkap.');\n  if (!['Exterior', 'Interior', 'Video'].includes(file.folder)) throw new Error('Kategori file tidak valid.');\n}\nreturn [{ json: {\n  carName, showroom, uploads,\n  parentFolderId: destinations[showroom].parentFolderId,\n  sheetName: destinations[showroom].sheetName,\n  spreadsheetId: '1MDLZOq9Lbq8Iy0h5AHh-x7qe67Qg7N-nvSKFX0ZozU0'\n} }];"
+      },
+      "id": "78f6a791-0568-43fd-a92c-5c6bc7623ad1",
+      "name": "Validate & Route Showroom",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1040, 200]
+    },
+    {
+      "parameters": {
+        "name": "={{ $json.carName }}",
+        "driveId": { "__rl": true, "mode": "list", "value": "My Drive" },
+        "folderId": { "__rl": true, "mode": "id", "value": "={{ $json.parentFolderId }}" },
+        "resource": "folder"
+      },
+      "id": "1ad0634f-bb9d-4632-9f0f-bec7ebd3f1f5",
+      "name": "Create Car Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [-800, 200]
+    },
+    {
+      "parameters": {
+        "name": "Exterior",
+        "driveId": { "__rl": true, "mode": "list", "value": "My Drive" },
+        "folderId": { "__rl": true, "mode": "id", "value": "={{ $json.id }}" },
+        "resource": "folder"
+      },
+      "id": "75114b1c-6698-4f0c-b57c-b9c515453dc2",
+      "name": "Create Exterior Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [-560, 200]
+    },
+    {
+      "parameters": {
+        "name": "Interior",
+        "driveId": { "__rl": true, "mode": "list", "value": "My Drive" },
+        "folderId": { "__rl": true, "mode": "id", "value": "={{ $('Create Car Folder').item.json.id }}" },
+        "resource": "folder"
+      },
+      "id": "d676e86f-d963-453d-9941-1cc6e7c3f0b6",
+      "name": "Create Interior Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [-320, 200]
+    },
+    {
+      "parameters": {
+        "name": "Video",
+        "driveId": { "__rl": true, "mode": "list", "value": "My Drive" },
+        "folderId": { "__rl": true, "mode": "id", "value": "={{ $('Create Car Folder').item.json.id }}" },
+        "resource": "folder"
+      },
+      "id": "d3a39659-05dd-424b-a64c-96f700ac5f08",
+      "name": "Create Video Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [-80, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $('Validate & Route Showroom').first().json;\nconst folderIds = {\n  Exterior: $('Create Exterior Folder').first().json.id,\n  Interior: $('Create Interior Folder').first().json.id,\n  Video: $('Create Video Folder').first().json.id,\n};\nreturn request.uploads.map((file) => ({\n  json: { name: file.name, folderId: folderIds[file.folder] },\n  binary: { data: { data: file.base64, mimeType: file.mimeType || 'image/jpeg', fileName: file.name } }\n}));"
+      },
+      "id": "c2a316a9-f027-42c5-bf7e-c16860d74d9e",
+      "name": "Build 17 Upload Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [160, 200]
+    },
+    {
+      "parameters": {
+        "name": "={{ $json.name }}",
+        "driveId": { "__rl": true, "mode": "list", "value": "My Drive" },
+        "folderId": { "__rl": true, "mode": "id", "value": "={{ $json.folderId }}" },
+        "inputDataFieldName": "data"
+      },
+      "id": "5f8641f6-6942-4e73-ad4f-04bc2c7eff45",
+      "name": "Upload Files to Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [400, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $('Validate & Route Showroom').first().json;\nconst carFolder = $('Create Car Folder').first().json;\nreturn [{ json: {\n  carName: request.carName,\n  showroom: request.showroom,\n  sheetName: request.sheetName,\n  spreadsheetId: request.spreadsheetId,\n  filesUploaded: $input.all().length,\n  uploadedAt: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),\n  driveFolderUrl: carFolder.webViewLink || `https://drive.google.com/drive/folders/${carFolder.id}`\n} }];"
+      },
+      "id": "0b057503-f606-4a6c-98d8-0e47fce7a6a6",
+      "name": "Prepare Sheet Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 200]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "mode": "id", "value": "={{ $json.spreadsheetId }}" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "={{ $json.sheetName }}" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Nama Mobil": "={{ $json.carName }}",
+            "Showroom": "={{ $json.showroom }}",
+            "Link Folder Drive": "={{ $json.driveFolderUrl }}",
+            "Jumlah File": "={{ $json.filesUploaded }}",
+            "Waktu Upload": "={{ $json.uploadedAt }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "d430496b-80bd-40b5-b9c8-6195b77e0d60",
+      "name": "Append Record to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [880, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, driveFolderUrl: $('Prepare Sheet Record').first().json.driveFolderUrl, message: 'Folder Drive dan catatan Sheets berhasil dibuat.' } }}",
+        "options": {}
+      },
+      "id": "7c6cf0bb-a110-4f41-8823-cf9f9b12055c",
+      "name": "Respond to Website",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [1120, 200]
+    }
+  ],
+  "connections": {
+    "Webhook - Car Content Upload": { "main": [[{ "node": "Validate & Route Showroom", "type": "main", "index": 0 }]] },
+    "Validate & Route Showroom": { "main": [[{ "node": "Create Car Folder", "type": "main", "index": 0 }]] },
+    "Create Car Folder": { "main": [[{ "node": "Create Exterior Folder", "type": "main", "index": 0 }]] },
+    "Create Exterior Folder": { "main": [[{ "node": "Create Interior Folder", "type": "main", "index": 0 }]] },
+    "Create Interior Folder": { "main": [[{ "node": "Create Video Folder", "type": "main", "index": 0 }]] },
+    "Create Video Folder": { "main": [[{ "node": "Build 17 Upload Items", "type": "main", "index": 0 }]] },
+    "Build 17 Upload Items": { "main": [[{ "node": "Upload Files to Drive", "type": "main", "index": 0 }]] },
+    "Upload Files to Drive": { "main": [[{ "node": "Prepare Sheet Record", "type": "main", "index": 0 }]] },
+    "Prepare Sheet Record": { "main": [[{ "node": "Append Record to Google Sheets", "type": "main", "index": 0 }]] },
+    "Append Record to Google Sheets": { "main": [[{ "node": "Respond to Website", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "versionId": "4fb53e60-49f2-4ef9-bc37-e5185ee2eb82",
+  "meta": { "templateCredsSetupCompleted": false },
+  "tags": []
+}
