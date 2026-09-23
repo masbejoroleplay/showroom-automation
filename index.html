@@ -73,7 +73,7 @@ const uploadService = {
       body:JSON.stringify(payload)
     }).then(function(response){
       return response.json().catch(function(){ return {}; }).then(function(data){
-        if(!response.ok || data.success === false){
+        if(!response.ok || data.success !== true || !data.driveFolderUrl){
           throw new Error(data.message || 'n8n tidak dapat memproses upload.');
         }
         return data;
